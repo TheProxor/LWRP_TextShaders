@@ -57,6 +57,8 @@
                 //добавляем сюда свои пропертисы
                 _DissolveMap("Dissolve Map", 2D) = "white" {}
                 _DissolveFactor("Dissolve Factor", Range(0, 1)) = 0.0
+                _DissolveWidth("Dissolve Width", Range(0, 1)) = 0.0
+                [HDR]_DissolveColor("Color", Color) = (1,1,0)
             }
 
             SubShader
@@ -191,14 +193,17 @@
                     half _BumpScale;
                     half _OcclusionStrength;
                     float4 _DissolveMap_ST; //Тайлинг и оффсет текстуры _DissolveMap
-                    float _DissolveFactor;
+
                 CBUFFER_END
 
                 TEXTURE2D(_OcclusionMap);       SAMPLER(sampler_OcclusionMap);
                 TEXTURE2D(_MetallicGlossMap);   SAMPLER(sampler_MetallicGlossMap);
                 TEXTURE2D(_SpecGlossMap);       SAMPLER(sampler_SpecGlossMap);
                 TEXTURE2D(_DissolveMap);        SAMPLER(sampler_DissolveMap);
-
+                
+                float _DissolveFactor;
+                float _DissolveWidth;
+                float4 _DissolveColor;
 
                 half4 SampleMetallicSpecGloss(float2 uv, half albedoAlpha)
                 {
@@ -353,11 +358,6 @@
                 // Used in Standard (Physically Based) shader
                 half4 LitPassFragment(Varyings input) : SV_Target
                 {
-                     float4 mask = SAMPLE_TEXTURE2D(_DissolveMap, sampler_DissolveMap, input.uv - _Time.x * 10);
-
-                     if (mask.r > _DissolveFactor)
-                         discard;
-
                     input.uv += _Time.x * 10;
                     UNITY_SETUP_INSTANCE_ID(input);
                     UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
@@ -368,17 +368,20 @@
                     InputData inputData;
                     InitializeInputData(input, surfaceData.normalTS, inputData);
                     
-                   
+                    float4 mask = SAMPLE_TEXTURE2D(_DissolveMap, sampler_DissolveMap, input.uv);
 
+                    if (mask.r > _DissolveFactor)
+                        discard;
+
+                    bool outline = mask.r > _DissolveFactor - _DissolveWidth;
+                    surfaceData.emission *= outline * _DissolveColor;
                     half4 color = LightweightFragmentPBR(inputData, surfaceData.albedo, surfaceData.metallic, surfaceData.specular, surfaceData.smoothness, surfaceData.occlusion, surfaceData.emission, surfaceData.alpha);
-
+                    color *= lerp(1, _DissolveColor, outline);
 
                     color.rgb = MixFog(color.rgb, inputData.fogCoord);
                     
                     return color;
                 }
-
-
                 ENDHLSL
             }
 
@@ -465,7 +468,7 @@
 
                 half4 ShadowPassFragment(Varyings input) : SV_TARGET
                 {
-                     float4 mask = SAMPLE_TEXTURE2D(_DissolveMap, sampler_DissolveMap, input.uv - _Time.x * 10);
+                     float4 mask = SAMPLE_TEXTURE2D(_DissolveMap, sampler_DissolveMap, input.uv);
 
                      if (mask.r > _DissolveFactor)
                          discard;
