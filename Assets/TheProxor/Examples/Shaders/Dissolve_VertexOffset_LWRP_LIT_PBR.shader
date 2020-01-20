@@ -505,11 +505,52 @@
                 #pragma multi_compile_instancing
 
                 #include "Packages/com.unity.render-pipelines.lightweight/Shaders/LitInput.hlsl"
-                #include "Packages/com.unity.render-pipelines.lightweight/Shaders/DepthOnlyPass.hlsl"
+                #include "Packages/com.unity.render-pipelines.lightweight/ShaderLibrary/Core.hlsl"
+
+                #ifndef LIGHTWEIGHT_DEPTH_ONLY_PASS_INCLUDED
+                #define LIGHTWEIGHT_DEPTH_ONLY_PASS_INCLUDED
+
+                struct Attributes
+                {
+                    float4 position     : POSITION;
+                    float2 texcoord     : TEXCOORD0;
+                    UNITY_VERTEX_INPUT_INSTANCE_ID
+                };
+
+                struct Varyings
+                {
+                    float2 uv           : TEXCOORD0;
+                    float4 positionCS   : SV_POSITION;
+                    UNITY_VERTEX_INPUT_INSTANCE_ID
+                    UNITY_VERTEX_OUTPUT_STEREO
+                };
+
+                Varyings DepthOnlyVertex(Attributes input)
+                {
+                    Varyings output = (Varyings)0;
+                    UNITY_SETUP_INSTANCE_ID(input);
+                    UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
+
+                    input.position.xyz += normalize(input.position.xyz) * sin(input.position.x) * sin(_Time.x * 100);
+
+                    output.uv = TRANSFORM_TEX(input.texcoord, _BaseMap);
+                    output.positionCS = TransformObjectToHClip(input.position.xyz);
+                    return output;
+                }
+
+                half4 DepthOnlyFragment(Varyings input) : SV_TARGET
+                {
+                    UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
+
+                    Alpha(SampleAlbedoAlpha(input.uv, TEXTURE2D_ARGS(_BaseMap, sampler_BaseMap)).a, _BaseColor, _Cutoff);
+                    return 0;
+                }
+                #endif
+
                 ENDHLSL
             }
 
-                // This pass it not used during regular rendering, only for lightmap baking.
+            //лайтмапы
             Pass
             {
                 Name "Meta"
@@ -534,8 +575,38 @@
                 #pragma shader_feature _SPECGLOSSMAP
 
                 #include "Packages/com.unity.render-pipelines.lightweight/Shaders/LitInput.hlsl"
-                #include "Packages/com.unity.render-pipelines.lightweight/Shaders/LitMetaPass.hlsl"
+                #include "Packages/com.unity.render-pipelines.lightweight/ShaderLibrary/MetaInput.hlsl"
 
+                #ifndef LIGHTWEIGHT_LIT_META_PASS_INCLUDED
+                #define LIGHTWEIGHT_LIT_META_PASS_INCLUDED
+
+
+
+                Varyings LightweightVertexMeta(Attributes input)
+                {
+                    Varyings output;
+                    output.positionCS = MetaVertexPosition(input.positionOS, input.uv1, input.uv2,
+                        unity_LightmapST, unity_DynamicLightmapST);
+                    output.uv = TRANSFORM_TEX(input.uv0, _BaseMap);
+                    return output;
+                }
+
+                half4 LightweightFragmentMeta(Varyings input) : SV_Target
+                {
+                    SurfaceData surfaceData;
+                    InitializeStandardLitSurfaceData(input.uv, surfaceData);
+
+                    BRDFData brdfData;
+                    InitializeBRDFData(surfaceData.albedo, surfaceData.metallic, surfaceData.specular, surfaceData.smoothness, surfaceData.alpha, brdfData);
+
+                    MetaInput metaInput;
+                    metaInput.Albedo = brdfData.diffuse + brdfData.specular * brdfData.roughness * 0.5;
+                    metaInput.SpecularColor = surfaceData.specular;
+                    metaInput.Emission = surfaceData.emission;
+
+                    return MetaFragment(metaInput);
+                }
+                #endif
                 ENDHLSL
             }
 
